@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-page="teacher">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History Homework Hub | Teacher Login</title>
+    <link rel="stylesheet" href="../shared/colors.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>History Homework Hub</h1>
+      <p>Teacher Dashboard · Test Environment</p>
+      <div id="signedIn" class="signedin" hidden>
+        <span id="signedInEmail"></span
+        ><button class="secondary" id="signOut" type="button">Sign out</button>
+      </div>
+    </header>
+    <section id="authScreen" class="auth-wrap">
+      <div class="auth-panel">
+        <h2 id="authTitle">Teacher sign in</h2>
+        <p class="auth-help">
+          For authorised test teachers. This preview uses fictional results only.
+        </p>
+        <form id="authForm">
+          <label for="email">School email</label
+          ><input id="email" type="email" autocomplete="email" required />
+          <div id="passwordGroup">
+            <label for="password">Password</label
+            ><input
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              minlength="12"
+              required
+            />
+          </div>
+          <button class="primary" id="submitAuth" type="submit">Sign in</button>
+        </form>
+        <div class="auth-links">
+          <button class="secondary" type="button" id="forgot">Forgot password?</button
+          ><button class="secondary" type="button" id="back" hidden>Back to sign in</button>
+        </div>
+        <div id="authMsg" class="auth-msg" role="status" aria-live="polite"></div>
+        <p class="auth-help">
+          There is no public registration. Teacher access is restricted to approved accounts.
+        </p>
+      </div>
+    </section>
+    <main id="dashboard" class="wrap" hidden>
+      <div class="notice">
+        <strong>TEST ENVIRONMENT:</strong> Use fictional pupil information only. Do not enter real
+        pupil data before school IT/DPO approval.
+      </div>
+      <section class="panel">
+        <div class="top">
+          <h2>Homework overview</h2>
+          <small>Allocated classes · Published homework</small>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Year group">
+          <button type="button" role="tab" aria-selected="false" data-year="9">Year 9</button
+          ><button type="button" role="tab" aria-selected="true" data-year="10">Year 10</button
+          ><button type="button" role="tab" aria-selected="false" data-year="11">Year 11</button>
+        </div>
+        <div class="controls">
+          <label>Class<select id="classSelect" aria-label="Choose class"></select></label
+          ><label>Homework<select id="weekSelect" aria-label="Choose homework"></select></label>
+        </div>
+        <div class="stats">
+          <div class="stat"><strong id="total">—</strong><span>Pupils</span></div>
+          <div class="stat"><strong id="completed">—</strong><span>Completed</span></div>
+          <div class="stat"><strong id="passed">—</strong><span>Passed</span></div>
+          <div class="stat"><strong id="missing">—</strong><span>Not completed</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="top">
+          <h2>Pupil results</h2>
+          <small id="context"></small>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Register number</th>
+                <th>Pupil code</th>
+                <th>Attempts</th>
+                <th>Highest score</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="results"></tbody>
+          </table>
+        </div>
+        <p class="foot">
+          Test with fictional codes only until school approval. Results are retrieved using
+          teacher-authorised Supabase permissions.
+        </p>
+      </section>
+    </main>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.min.js"
+      integrity="sha384-gnyZit14c5lnGcarmA166QQjjJXpucw25ogZXuwH3HxxY904zHkBqmxVpelsPorb"
+      crossorigin="anonymous"
+    ></script>
+    <script src="../shared/config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
