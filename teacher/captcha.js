@@ -47,33 +47,33 @@ window.HISTORY_CAPTCHA_GATE = {
         };
         script.onload = () => {
           if (!window.turnstile) return script.onerror();
-          window.turnstile.ready(() => {
-            try {
-              widget = window.turnstile.render(container, {
-                sitekey: config.siteKey,
-                "response-field": false,
-                callback: (value) => {
-                  token = typeof value === "string" && value ? value : null;
-                  notice(token ? "Security check complete." : "Complete the security check.");
-                  onChange();
-                },
-                "expired-callback": () => {
-                  token = null;
-                  notice("Security check expired. Complete it again.");
-                  onChange();
-                },
-                "error-callback": () => {
-                  token = null;
-                  notice("Security check failed. Reload the page to try again.");
-                  onChange();
-                },
-              });
-              loaded = true;
-              clearTimeout(timer);
-            } catch {
-              script.onerror();
-            }
-          });
+          // The asynchronous script has executed when its load event fires.
+          // Calling ready() here is rejected by Turnstile for async/defer scripts.
+          try {
+            widget = window.turnstile.render(container, {
+              sitekey: config.siteKey,
+              "response-field": false,
+              callback: (value) => {
+                token = typeof value === "string" && value ? value : null;
+                notice(token ? "Security check complete." : "Complete the security check.");
+                onChange();
+              },
+              "expired-callback": () => {
+                token = null;
+                notice("Security check expired. Complete it again.");
+                onChange();
+              },
+              "error-callback": () => {
+                token = null;
+                notice("Security check failed. Reload the page to try again.");
+                onChange();
+              },
+            });
+            loaded = true;
+            clearTimeout(timer);
+          } catch {
+            script.onerror();
+          }
         };
         document.head.append(script);
       }
