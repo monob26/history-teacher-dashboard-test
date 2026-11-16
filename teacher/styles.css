@@ -73,7 +73,7 @@ header p {
   font-weight: 700;
   cursor: pointer;
 }
-.tabs button[aria-selected="true"] {
+.tabs button[aria-pressed="true"] {
   background: var(--navy);
   color: white;
   border-color: var(--navy);

@@ -94,7 +94,7 @@ function showSignedOut() {
   render();
 }
 function syncYear() {
-  for (const b of yearButtons) b.setAttribute("aria-selected", String(b.dataset.year === year));
+  for (const b of yearButtons) b.setAttribute("aria-pressed", String(b.dataset.year === year));
 }
 function updateSelectors() {
   const priorClass = classSelect.value,
@@ -102,9 +102,9 @@ function updateSelectors() {
   classSelect.replaceChildren();
   const available = classes.filter((c) => String(c.year_group) === year);
   if (!available.length) option(classSelect, "", "No allocated classes");
-  else for (const c of available) option(classSelect, c.class_name, c.class_name);
-  if (available.some((c) => c.class_name === priorClass)) classSelect.value = priorClass;
-  selectedClass = available.find((c) => c.class_name === classSelect.value) || null;
+  else for (const c of available) option(classSelect, c.id, c.class_name);
+  if (available.some((c) => c.id === priorClass)) classSelect.value = priorClass;
+  selectedClass = available.find((c) => c.id === classSelect.value) || null;
   weekSelect.replaceChildren();
   const availableQuizzes = quizzes.filter((q) => Number(q.year_group) === Number(year));
   if (!availableQuizzes.length) option(weekSelect, "", "No published homework");
@@ -125,7 +125,16 @@ function render() {
   const hasQuiz = Boolean(selectedQuiz);
   const data = ready
     ? hasQuiz
-      ? liveRows
+      ? classCodes.map((pupil) => {
+          const result = liveRows.find((row) => row.pupil_code === pupil.pupil_code);
+          return {
+            ...pupil,
+            attempts: 0,
+            highest_score: null,
+            homework_status: "Not completed",
+            ...result,
+          };
+        })
       : classCodes.map((p) => ({
           pupil_code: p.pupil_code,
           register_number: p.register_number,
@@ -204,7 +213,7 @@ async function loadResults() {
   render();
   if (!loading) return;
   const classId = selectedClass.id,
-    requested_class = selectedClass.class_name,
+    requested_class_id = selectedClass.id,
     requested_quiz = selectedQuiz?.id;
   try {
     const codeRequest = client
@@ -212,7 +221,7 @@ async function loadResults() {
       .select("pupil_code,register_number")
       .eq("class_id", classId);
     const resultRequest = requested_quiz
-      ? client.rpc("get_history_class_results", { requested_class, requested_quiz })
+      ? client.rpc("get_history_class_results_by_id", { requested_class_id, requested_quiz })
       : Promise.resolve({ data: [], error: null });
     const [codesResult, resultsResult] = await Promise.all([codeRequest, resultRequest]);
     if (generation !== resultsGeneration || !approved) return;
@@ -345,8 +354,7 @@ for (const b of yearButtons)
   });
 classSelect.addEventListener("change", () => {
   selectedClass =
-    classes.find((c) => c.class_name === classSelect.value && String(c.year_group) === year) ||
-    null;
+    classes.find((c) => c.id === classSelect.value && String(c.year_group) === year) || null;
   loadResults();
 });
 weekSelect.addEventListener("change", () => {

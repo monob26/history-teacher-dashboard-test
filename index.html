@@ -4,6 +4,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://ohkpvuhzvshjglbqyepq.supabase.co; img-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'"
+    />
     <title>History Homework Hub | Teacher Login</title>
     <link rel="stylesheet" href="./shared/colors.css" />
     <link rel="stylesheet" href="./teacher/styles.css" />
@@ -58,10 +62,10 @@
           <h2>Homework overview</h2>
           <small>Allocated classes · Published homework</small>
         </div>
-        <div class="tabs" role="tablist" aria-label="Year group">
-          <button type="button" role="tab" aria-selected="false" data-year="9">Year 9</button
-          ><button type="button" role="tab" aria-selected="true" data-year="10">Year 10</button
-          ><button type="button" role="tab" aria-selected="false" data-year="11">Year 11</button>
+        <div class="tabs" role="group" aria-label="Year group">
+          <button type="button" aria-pressed="false" data-year="9">Year 9</button
+          ><button type="button" aria-pressed="true" data-year="10">Year 10</button
+          ><button type="button" aria-pressed="false" data-year="11">Year 11</button>
         </div>
         <div class="controls">
           <label>Class<select id="classSelect" aria-label="Choose class"></select></label
@@ -100,7 +104,7 @@
       </section>
     </main>
     <script
-      src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.min.js"
+      src="./vendor/supabase-2.119.0.min.js"
       integrity="sha384-gnyZit14c5lnGcarmA166QQjjJXpucw25ogZXuwH3HxxY904zHkBqmxVpelsPorb"
       crossorigin="anonymous"
     ></script>
