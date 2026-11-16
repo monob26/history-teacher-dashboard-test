@@ -43,6 +43,8 @@ function setMode(next) {
         ? "Set a new password"
         : "Reset your password";
   passwordGroup.hidden = next === "forgot";
+  el("email").disabled = next === "reset";
+  el("email").required = next !== "reset";
   el("password").required = next !== "forgot";
   el("password").autocomplete = next === "reset" ? "new-password" : "current-password";
   submitAuth.textContent =
@@ -283,6 +285,7 @@ else {
   client.auth.onAuthStateChange((event, session) => {
     if (event === "PASSWORD_RECOVERY") {
       showSignedOut();
+      el("email").value = session?.user?.email || "";
       setMode("reset");
       return;
     }
@@ -318,6 +321,7 @@ authForm.addEventListener("submit", async (e) => {
       message("If the address belongs to an account, a recovery email will be sent.");
     else if (mode === "reset") {
       await client.auth.signOut();
+      el("password").value = "";
       setMode("signin");
       message("Password saved. Please sign in.");
     } else if (result.data?.user) showSignedIn(result.data.user);
