@@ -1,0 +1,7 @@
+{
+  "environment": "r11-test",
+  "source_commit": "a5fdc10d51c20ebd90d6f906b41ebcfaa43bb70b",
+  "project_ref": "ohkpvuhzvshjglbqyepq",
+  "captcha_provider": "turnstile",
+  "smtp": "unchanged"
+}
