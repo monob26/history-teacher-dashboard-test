@@ -1,0 +1,131 @@
+/* Scoped additions only; the existing overview/results styles are unchanged. */
+.qm label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0;
+  font-weight: 700;
+}
+.qm input:not([type="radio"]):not([type="checkbox"]),
+.qm select,
+.qm textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #9aaec0;
+  border-radius: 7px;
+  background: white;
+  color: var(--navy);
+  font: inherit;
+}
+.qm textarea {
+  resize: vertical;
+  min-height: 75px;
+}
+.qm fieldset {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.qm legend {
+  font-weight: 700;
+  padding: 0 5px;
+}
+.qm .qm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 15px 0;
+}
+.qm .qm-actions label {
+  flex: 1 1 180px;
+}
+.qm .qm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.qm details {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.qm summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: 5px;
+}
+.qm .qm-answer {
+  display: block;
+  margin-top: 5px;
+  color: #275a35;
+  font-weight: 400;
+}
+.qm .qm-errors {
+  color: #852a20;
+}
+.qm .qm-inline {
+  flex-direction: row;
+  align-items: center;
+  font-weight: 400;
+}
+.qm .qm-inline input {
+  flex: 0 0 auto;
+}
+.qm .qm-option {
+  border: 1px solid #9aaec0;
+  border-radius: 8px;
+  padding: 12px;
+  background: white;
+}
+.qm .qm-review {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.qm button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.qm [hidden] {
+  display: none !important;
+}
+.qm :focus-visible {
+  outline: 3px solid #21659b;
+  outline-offset: 3px;
+}
+.qm-dialog {
+  width: min(800px, calc(100% - 24px));
+  max-height: calc(100vh - 32px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+  color: var(--navy);
+  background: var(--cream);
+}
+.qm-dialog::backdrop {
+  background: #172b46a8;
+}
+.qm-preview {
+  background: #f5f4eb;
+}
+.qm-preview #qmSimulation {
+  background: #edf4f8;
+  border-radius: 12px;
+  padding: 18px;
+}
+@media (max-width: 600px) {
+  .qm .qm-grid {
+    grid-template-columns: 1fr;
+  }
+  .qm-dialog {
+    padding: 14px;
+  }
+  .qm .qm-actions button {
+    flex: 1 1 140px;
+  }
+}

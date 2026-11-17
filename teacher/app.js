@@ -3,6 +3,7 @@
 const { supabaseUrl: SUPABASE_URL, publishableKey: SUPABASE_PUBLISHABLE_KEY } =
   window.HISTORY_CONFIG;
 const { teacherRedirectUrl: REDIRECT_URL } = window.HISTORY_CONFIG;
+const TEACHER_V3 = SUPABASE_URL === "https://ohkpvuhzvshjglbqyepq.supabase.co";
 const el = (id) => document.getElementById(id);
 const authScreen = el("authScreen"),
   dashboard = el("dashboard"),
@@ -127,6 +128,7 @@ function emptyRow(text) {
   el("results").append(tr);
 }
 function showSignedOut() {
+  window.QUIZ_MANAGER?.disconnect();
   authGeneration++;
   resultsGeneration++;
   approved = false;
@@ -154,7 +156,11 @@ function updateSelectors() {
   if (available.some((c) => c.id === priorClass)) classSelect.value = priorClass;
   selectedClass = available.find((c) => c.id === classSelect.value) || null;
   weekSelect.replaceChildren();
-  const availableQuizzes = quizzes.filter((q) => Number(q.year_group) === Number(year));
+  const availableQuizzes = quizzes.filter(
+    (q) =>
+      Number(q.year_group) === Number(year) &&
+      (!q.class_ids || q.class_ids.includes(selectedClass?.id)),
+  );
   if (!availableQuizzes.length) option(weekSelect, "", "No published homework");
   else
     for (const q of availableQuizzes)
@@ -242,13 +248,21 @@ function render() {
     const status = hasQuiz ? p.homework_status || "Not completed" : "No homework assigned";
     cell(
       tr,
-      status,
+      status + (p.deadline_status ? " · " + p.deadline_status : ""),
       status === "Passed"
         ? "status passed"
         : status === "Not passed"
           ? "status notpassed"
           : "status missing",
     );
+    if (p.first_passed_at)
+      tr.lastElementChild.title =
+        "First passed: " +
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/London",
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(p.first_passed_at));
     el("results").append(tr);
   }
 }
@@ -269,7 +283,12 @@ async function loadResults() {
       .select("pupil_code,register_number")
       .eq("class_id", classId);
     const resultRequest = requested_quiz
-      ? client.rpc("get_history_class_results_by_id", { requested_class_id, requested_quiz })
+      ? TEACHER_V3
+        ? client.rpc("quiz_manager_class_results", {
+            class_id: requested_class_id,
+            quiz_id: requested_quiz,
+          })
+        : client.rpc("get_history_class_results_by_id", { requested_class_id, requested_quiz })
       : Promise.resolve({ data: [], error: null });
     const [codesResult, resultsResult] = await Promise.all([codeRequest, resultRequest]);
     if (generation !== resultsGeneration || !approved) return;
@@ -310,8 +329,29 @@ async function showSignedIn(user) {
     if (classResult.error) throw classResult.error;
     if (quizResult.error) throw quizResult.error;
     approved = true;
+    window.QUIZ_MANAGER?.connect(client, user.id || user.email);
     classes = classResult.data || [];
     quizzes = quizResult.data || [];
+    if (TEACHER_V3) {
+      const [managed, allocations] = await Promise.all([
+        client.from("quiz_manager_quizzes").select("id,runtime_quiz_id"),
+        client.from("quiz_manager_allocations").select("quiz_id,class_id"),
+      ]);
+      if (generation !== authGeneration) return;
+      if (managed.error || allocations.error) window.QUIZ_MANAGER?.disconnect();
+      else
+        quizzes = quizzes.map((q) => {
+          const m = managed.data.find((m) => m.runtime_quiz_id === q.id);
+          return m
+            ? {
+                ...q,
+                class_ids: allocations.data
+                  .filter((a) => a.quiz_id === m.id)
+                  .map((a) => a.class_id),
+              }
+            : q;
+        });
+    }
     authScreen.hidden = true;
     dashboard.hidden = false;
     el("signedIn").hidden = false;
@@ -325,6 +365,7 @@ async function showSignedIn(user) {
   } catch (e) {
     if (generation !== authGeneration) return;
     approved = false;
+    window.QUIZ_MANAGER?.disconnect();
     classes = [];
     quizzes = [];
     dashboard.hidden = true;
@@ -421,6 +462,7 @@ authForm.addEventListener("submit", async (e) => {
   }
 });
 el("signOut").addEventListener("click", async () => {
+  if (window.QUIZ_MANAGER && !window.QUIZ_MANAGER.canLeave()) return;
   if (client) await client.auth.signOut();
   showSignedOut();
   setMode("signin");
@@ -435,6 +477,7 @@ for (const b of yearButtons)
 classSelect.addEventListener("change", () => {
   selectedClass =
     classes.find((c) => c.id === classSelect.value && String(c.year_group) === year) || null;
+  if (TEACHER_V3) updateSelectors();
   loadResults();
 });
 weekSelect.addEventListener("change", () => {
@@ -445,3 +488,8 @@ updateSelectors();
 render();
 
 syncAuthControls();
+document.addEventListener("quiz-published", async () => {
+  if (!approved || !client) return;
+  const session = await client.auth.getSession();
+  if (approved && session.data?.session?.user) showSignedIn(session.data.session.user);
+});
