@@ -15,6 +15,30 @@
       minute: "2-digit",
       timeZoneName: "short",
     }).format(new Date(value));
+  // Resolve UK wall times against both UK offsets; Intl also rejects DST gaps/invalid dates.
+  function ukTimes(value) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return [];
+    const parts = value.match(/\d+/g).map(Number);
+    const base = new Date(0);
+    base.setUTCFullYear(parts[0], parts[1] - 1, parts[2]);
+    base.setUTCHours(parts[3], parts[4], 0, 0);
+    const formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    return [base.getTime() - 3600000, base.getTime()].filter((time) => {
+      if (!Number.isFinite(time)) return false;
+      const p = Object.fromEntries(
+        formatter.formatToParts(new Date(time)).map((p) => [p.type, p.value]),
+      );
+      return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}` === value;
+    });
+  }
   window.QUIZ_PUBLICATION = {
     create(owner) {
       const dialog = node("dialog");
@@ -26,7 +50,7 @@
         message = node("p");
       message.setAttribute("role", "alert");
       const classes = node("fieldset");
-      classes.append(node("legend", "Assign to existing classes"));
+      classes.append(node("legend", "2. Select classes"));
       const approvalLabel = node("label"),
         approval = node("input");
       approval.type = "checkbox";
@@ -72,22 +96,23 @@
       dialog.append(
         heading,
         summary,
+        node("h3", "1. Review and approve all 25 questions"),
         preview,
         approvalLabel,
         approve,
         classes,
-        node(
-          "p",
-          "All dates and times below are UK local time (Europe/London). Missing spring times are refused. Repeated autumn times require an explicit occurrence.",
-        ),
+        node("h3", "3. Set the homework deadline"),
+        node("p", "All dates and times are UK time."),
       );
       const due = input("Shared homework deadline (UK)", "datetime-local"),
         dueFold = fold("Deadline clock-change occurrence");
+      due.required = true;
+      dialog.append(node("h3", "4. Choose when to release"));
       const modeLabel = node("label", "Release method"),
         mode = node("select");
       for (const [value, text] of [
         ["publish_now", "Publish now"],
-        ["schedule", "Schedule publication"],
+        ["schedule", "Schedule for later"],
       ]) {
         const o = node("option", text);
         o.value = value;
@@ -101,14 +126,42 @@
       const publish = node("button", "Confirm publication / schedule");
       publish.type = "button";
       publish.className = "primary";
-      const linkLabel = node("label", "ClassCharts quiz link"),
+      const linkLabel = node("label", "Individual quiz link"),
         link = node("input");
       link.readOnly = true;
       linkLabel.append(link);
       const close = node("button", "Close");
       close.type = "button";
       close.className = "secondary";
-      dialog.append(message, publish, linkLabel, close);
+      const permanentURL = "https://monob26.github.io/gcse-history-homework-hub-test/";
+      const permanentLabel = node("label", "Permanent Homework Hub link (ClassCharts)"),
+        permanentLink = node("input"),
+        copy = node("button", "Copy link"),
+        individual = node("details");
+      permanentLink.readOnly = true;
+      permanentLink.value = permanentURL;
+      permanentLabel.append(permanentLink);
+      copy.type = "button";
+      copy.className = "secondary";
+      copy.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(permanentURL);
+          copy.textContent = "Link copied";
+        } catch {
+          message.textContent = "Select and copy the Homework Hub link above.";
+        }
+      };
+      individual.append(node("summary", "Individual quiz link (optional)"), linkLabel);
+      dialog.append(
+        node("h3", "5. Confirm"),
+        message,
+        publish,
+        permanentLabel,
+        node("p", "Reuse this link on ClassCharts every week."),
+        copy,
+        individual,
+        close,
+      );
       document.body.append(dialog);
       let epoch = 0,
         busy = false;
@@ -125,13 +178,28 @@
         approval.disabled = busy || q.state !== "draft";
         publish.disabled = busy || q.state !== "approved" || !!q.first_started_at;
         close.disabled = busy;
+        release.parentElement.hidden = mode.value !== "schedule";
         release.disabled = busy || mode.value !== "schedule";
-        releaseFold.disabled = release.disabled;
+        release.required = mode.value === "schedule";
+        for (const [field, occurrence, active] of [
+          [due, dueFold, true],
+          [release, releaseFold, mode.value === "schedule"],
+        ]) {
+          const ambiguous = active && ukTimes(field.value).length === 2;
+          occurrence.parentElement.hidden = !ambiguous;
+          occurrence.disabled = busy || !ambiguous;
+          if (!ambiguous) occurrence.value = "";
+        }
         link.value = q.runtime_quiz_id
           ? "https://monob26.github.io/gcse-history-homework-hub-test/?quiz=" + q.runtime_quiz_id
           : "Available after approval";
       }
       mode.onchange = sync;
+      for (const field of [due, release])
+        field.oninput = () => {
+          (field === due ? dueFold : releaseFold).value = "";
+          sync();
+        };
       close.onclick = () => dialog.close();
       dialog.addEventListener("cancel", (e) => {
         if (busy) e.preventDefault();
@@ -215,6 +283,28 @@
             "Select classes and fill in the UK deadline and scheduled release time, if needed.";
           return;
         }
+        const resolveTime = (field, occurrence) => {
+          const times = ukTimes(field.value);
+          if (!field.checkValidity() || !times.length)
+            throw Error(
+              "Choose a valid UK date and time. Times skipped when the clocks move forward cannot be used.",
+            );
+          if (times.length === 2 && !occurrence.value)
+            throw Error("That UK time occurs twice. Choose the first or second occurrence.");
+          return times[occurrence.value === "later" ? times.length - 1 : 0];
+        };
+        try {
+          const deadline = resolveTime(due, dueFold);
+          const released =
+            mode.value === "schedule" ? resolveTime(release, releaseFold) : Date.now();
+          if (mode.value === "schedule" && released <= Date.now())
+            throw Error("Choose a release time in the future.");
+          if (deadline < released)
+            throw Error("The homework deadline cannot be earlier than release.");
+        } catch (e) {
+          message.textContent = e.message;
+          return;
+        }
         if (
           !confirm(
             (mode.value === "schedule"
@@ -261,6 +351,8 @@
           dueFold.value = "";
           releaseFold.value = "";
           mode.value = "publish_now";
+          individual.open = false;
+          copy.textContent = "Copy link";
           dialog.showModal();
           sync();
           try {
@@ -271,7 +363,7 @@
             if (request !== epoch || client !== owner.client()) return;
             if (catalogue.error) throw catalogue.error;
             if (allocated.error) throw allocated.error;
-            classes.replaceChildren(node("legend", "Assign to existing classes"));
+            classes.replaceChildren(node("legend", "2. Select classes"));
             for (const c of catalogue.data.filter((c) => c.year_group === q.year_group)) {
               const l = node("label"),
                 i = node("input");
@@ -282,8 +374,7 @@
               l.append(i, document.createTextNode(c.class_name));
               classes.append(l);
             }
-            message.textContent =
-              "Approval and release are separate actions. Previews never create pupil attempts.";
+            message.textContent = "";
           } catch (e) {
             if (request === epoch)
               message.textContent = "Unable to load class choices. " + e.message;
@@ -301,7 +392,7 @@
           dueFold.value = "";
           releaseFold.value = "";
           approval.checked = false;
-          classes.replaceChildren(node("legend", "Assign to existing classes"));
+          classes.replaceChildren(node("legend", "2. Select classes"));
         },
       };
     },
