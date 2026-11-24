@@ -1,0 +1,495 @@
+"use strict";
+// Only a public Supabase publishable key belongs in this browser file.
+const { supabaseUrl: SUPABASE_URL, publishableKey: SUPABASE_PUBLISHABLE_KEY } =
+  window.HISTORY_CONFIG;
+const { teacherRedirectUrl: REDIRECT_URL } = window.HISTORY_CONFIG;
+const TEACHER_V3 = SUPABASE_URL === "https://ohkpvuhzvshjglbqyepq.supabase.co";
+const el = (id) => document.getElementById(id);
+const authScreen = el("authScreen"),
+  dashboard = el("dashboard"),
+  authForm = el("authForm");
+const authMsg = el("authMsg"),
+  authTitle = el("authTitle"),
+  passwordGroup = el("passwordGroup");
+const submitAuth = el("submitAuth"),
+  back = el("back"),
+  forgot = el("forgot");
+const classSelect = el("classSelect"),
+  weekSelect = el("weekSelect");
+const yearButtons = [...document.querySelectorAll("[data-year]")];
+let client = null,
+  mode = "signin",
+  approved = false,
+  year = "10",
+  classes = [],
+  quizzes = [],
+  liveRows = [];
+let authGeneration = 0,
+  resultsGeneration = 0,
+  selectedClass = null,
+  selectedQuiz = null,
+  loading = false,
+  resultsError = "",
+  classCodes = [];
+// UI backoff is courtesy to users, not a server-side abuse control.
+let authRequestPending = false,
+  authRetryAfter = null,
+  cooldownTimer = null;
+const authCooldowns = new Map();
+const captchaGate = window.HISTORY_CAPTCHA_GATE.create(() => syncAuthControls());
+function retrySeconds(value) {
+  if (!value) return null;
+  const number = /^\d+$/.test(value) ? Number(value) : (Date.parse(value) - Date.now()) / 1000;
+  return Number.isFinite(number) && number > 0 ? Math.ceil(number) : null;
+}
+async function authAwareFetch(input, init) {
+  const response = await fetch(input, init);
+  const url = new URL(typeof input === "string" ? input : input.url);
+  if (
+    url.origin === SUPABASE_URL &&
+    url.pathname.startsWith("/auth/v1/") &&
+    response.status === 429
+  )
+    authRetryAfter = retrySeconds(response.headers.get("Retry-After"));
+  return response;
+}
+function syncAuthControls() {
+  const block = authCooldowns.get(mode);
+  const seconds = block ? Math.max(0, Math.ceil((block.until - Date.now()) / 1000)) : 0;
+  submitAuth.disabled = authRequestPending || seconds > 0 || !captchaGate.ready();
+  forgot.disabled = authRequestPending;
+  back.disabled = authRequestPending;
+  if (seconds > 0) {
+    const action = mode === "forgot" ? "Password reset requests" : "Sign-in requests";
+    message(
+      `${action} are temporarily limited. ${block.exact ? "Try again in" : "Pause for at least"} ${seconds} seconds.${block.exact ? "" : " The server did not provide a retry time; its limit may last longer."} If this affects other teachers, contact school IT.`,
+      true,
+    );
+  }
+  if (block && seconds === 0 && !authRequestPending) {
+    authCooldowns.delete(mode);
+    message(
+      "The page's waiting period has ended. You can try again; the server may still apply a limit.",
+    );
+  }
+  if (![...authCooldowns.values()].some((b) => b.until > Date.now()) && cooldownTimer) {
+    clearInterval(cooldownTimer);
+    cooldownTimer = null;
+  }
+}
+function message(value, error = false) {
+  authMsg.textContent = value;
+  authMsg.className = "auth-msg " + (error ? "error" : "ok");
+}
+function setMode(next) {
+  mode = next;
+  captchaGate.setMode(next);
+  authTitle.textContent =
+    next === "signin"
+      ? "Teacher sign in"
+      : next === "reset"
+        ? "Set a new password"
+        : "Reset your password";
+  passwordGroup.hidden = next === "forgot";
+  el("email").disabled = next === "reset";
+  el("email").required = next !== "reset";
+  el("password").required = next !== "forgot";
+  el("password").autocomplete = next === "reset" ? "new-password" : "current-password";
+  submitAuth.textContent =
+    next === "signin"
+      ? "Sign in"
+      : next === "reset"
+        ? "Save new password"
+        : "Send password reset email";
+  forgot.hidden = next !== "signin";
+  back.hidden = next === "signin";
+  message("");
+  syncAuthControls();
+}
+function option(select, value, label) {
+  const o = document.createElement("option");
+  o.value = value;
+  o.textContent = label;
+  select.append(o);
+}
+function cell(row, value, className) {
+  const td = document.createElement("td");
+  td.textContent = value;
+  if (className) td.className = className;
+  row.append(td);
+}
+function emptyRow(text) {
+  const tr = document.createElement("tr"),
+    td = document.createElement("td");
+  td.colSpan = 5;
+  td.className = "empty";
+  td.textContent = text;
+  tr.append(td);
+  el("results").append(tr);
+}
+function showSignedOut() {
+  window.QUIZ_MANAGER?.disconnect();
+  authGeneration++;
+  resultsGeneration++;
+  approved = false;
+  classes = [];
+  quizzes = [];
+  liveRows = [];
+  classCodes = [];
+  loading = false;
+  resultsError = "";
+  dashboard.hidden = true;
+  authScreen.hidden = false;
+  el("signedIn").hidden = true;
+  render();
+}
+function syncYear() {
+  for (const b of yearButtons) b.setAttribute("aria-pressed", String(b.dataset.year === year));
+}
+function updateSelectors() {
+  const priorClass = classSelect.value,
+    priorQuiz = weekSelect.value;
+  classSelect.replaceChildren();
+  const available = classes.filter((c) => String(c.year_group) === year);
+  if (!available.length) option(classSelect, "", "No allocated classes");
+  else for (const c of available) option(classSelect, c.id, c.class_name);
+  if (available.some((c) => c.id === priorClass)) classSelect.value = priorClass;
+  selectedClass = available.find((c) => c.id === classSelect.value) || null;
+  weekSelect.replaceChildren();
+  const availableQuizzes = quizzes.filter(
+    (q) =>
+      Number(q.year_group) === Number(year) &&
+      (!q.class_ids || q.class_ids.includes(selectedClass?.id)),
+  );
+  if (!availableQuizzes.length) option(weekSelect, "", "No published homework");
+  else
+    for (const q of availableQuizzes)
+      option(weekSelect, q.id, "Week " + q.week_number + " · " + q.quiz_title);
+  if (availableQuizzes.some((q) => q.id === priorQuiz)) weekSelect.value = priorQuiz;
+  selectedQuiz = availableQuizzes.find((q) => q.id === weekSelect.value) || null;
+  classSelect.disabled = !selectedClass;
+  weekSelect.disabled = !selectedQuiz;
+}
+function registerNumber(pupil) {
+  const n = Number(pupil.register_number);
+  return Number.isInteger(n) && n > 0 ? n : Number.MAX_SAFE_INTEGER;
+}
+function render() {
+  const ready = approved && selectedClass && !loading && !resultsError;
+  const hasQuiz = Boolean(selectedQuiz);
+  const data = ready
+    ? hasQuiz
+      ? classCodes.map((pupil) => {
+          const result = liveRows.find((row) => row.pupil_code === pupil.pupil_code);
+          return {
+            ...pupil,
+            attempts: 0,
+            highest_score: null,
+            homework_status: "Not completed",
+            ...result,
+          };
+        })
+      : classCodes.map((p) => ({
+          pupil_code: p.pupil_code,
+          register_number: p.register_number,
+          attempts: 0,
+          highest_score: null,
+          homework_status: "No homework assigned",
+        }))
+    : [];
+  const completed = hasQuiz ? data.filter((p) => Number(p.attempts) > 0).length : 0;
+  const passed = hasQuiz ? data.filter((p) => p.homework_status === "Passed").length : 0;
+  const values = {
+    total: ready ? data.length : "—",
+    completed: ready && hasQuiz ? completed : "—",
+    passed: ready && hasQuiz ? passed : "—",
+    missing: ready && hasQuiz ? data.length - completed : "—",
+  };
+  for (const [id, value] of Object.entries(values)) el(id).textContent = value;
+  el("context").textContent =
+    (selectedClass?.class_name || "No class") +
+    " · " +
+    (selectedQuiz ? "Week " + selectedQuiz.week_number : "No published quiz");
+  el("results").replaceChildren();
+  if (!approved) {
+    emptyRow("Sign in to view results.");
+    return;
+  }
+  if (!selectedClass) {
+    emptyRow("No classes allocated for this year group.");
+    return;
+  }
+  if (loading) {
+    emptyRow("Loading pupil codes…");
+    return;
+  }
+  if (resultsError) {
+    emptyRow("Unable to load pupil codes or results: " + resultsError);
+    return;
+  }
+  if (!data.length) {
+    emptyRow("No pupil codes found in this class.");
+    return;
+  }
+  data.sort(
+    (a, b) => registerNumber(a) - registerNumber(b) || a.pupil_code.localeCompare(b.pupil_code),
+  );
+  for (const p of data) {
+    const tr = document.createElement("tr");
+    cell(tr, p.register_number);
+    cell(tr, p.pupil_code);
+    cell(tr, hasQuiz ? String(p.attempts) : "—");
+    cell(
+      tr,
+      hasQuiz && p.highest_score !== null
+        ? p.highest_score + "/" + (selectedQuiz.total_questions || 25)
+        : "—",
+    );
+    const status = hasQuiz ? p.homework_status || "Not completed" : "No homework assigned";
+    cell(
+      tr,
+      status + (p.deadline_status ? " · " + p.deadline_status : ""),
+      status === "Passed"
+        ? "status passed"
+        : status === "Not passed"
+          ? "status notpassed"
+          : "status missing",
+    );
+    if (p.first_passed_at)
+      tr.lastElementChild.title =
+        "First passed: " +
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/London",
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(p.first_passed_at));
+    el("results").append(tr);
+  }
+}
+async function loadResults() {
+  const generation = ++resultsGeneration;
+  liveRows = [];
+  classCodes = [];
+  resultsError = "";
+  loading = Boolean(approved && selectedClass);
+  render();
+  if (!loading) return;
+  const classId = selectedClass.id,
+    requested_class_id = selectedClass.id,
+    requested_quiz = selectedQuiz?.id;
+  try {
+    const codeRequest = client
+      .from("history_pupils")
+      .select("pupil_code,register_number")
+      .eq("class_id", classId);
+    const resultRequest = requested_quiz
+      ? TEACHER_V3
+        ? client.rpc("quiz_manager_class_results", {
+            class_id: requested_class_id,
+            quiz_id: requested_quiz,
+          })
+        : client.rpc("get_history_class_results_by_id", { requested_class_id, requested_quiz })
+      : Promise.resolve({ data: [], error: null });
+    const [codesResult, resultsResult] = await Promise.all([codeRequest, resultRequest]);
+    if (generation !== resultsGeneration || !approved) return;
+    if (codesResult.error) throw codesResult.error;
+    if (resultsResult.error) throw resultsResult.error;
+    classCodes = Array.isArray(codesResult.data) ? codesResult.data : [];
+    liveRows = Array.isArray(resultsResult.data) ? resultsResult.data : [];
+  } catch (e) {
+    if (generation !== resultsGeneration || !approved) return;
+    resultsError = e.message || "Unknown error";
+  } finally {
+    if (generation === resultsGeneration) {
+      loading = false;
+      render();
+    }
+  }
+}
+async function showSignedIn(user) {
+  const generation = ++authGeneration;
+  dashboard.hidden = true;
+  authScreen.hidden = false;
+  message("Checking teacher authorisation…");
+  try {
+    const approval = await client.rpc("is_history_teacher");
+    if (generation !== authGeneration) return;
+    if (approval.error) throw approval.error;
+    if (approval.data !== true) throw new Error("This account is not approved for teacher access.");
+    // Both queries are filtered by database row-level security.
+    const [classResult, quizResult] = await Promise.all([
+      client.from("history_classes").select("id,class_name,year_group").order("class_name"),
+      client
+        .from("history_quizzes")
+        .select("id,quiz_title,year_group,topic,week_number,total_questions,pass_mark")
+        .eq("is_published", true)
+        .order("week_number"),
+    ]);
+    if (generation !== authGeneration) return;
+    if (classResult.error) throw classResult.error;
+    if (quizResult.error) throw quizResult.error;
+    approved = true;
+    window.QUIZ_MANAGER?.connect(client, user.id || user.email);
+    classes = classResult.data || [];
+    quizzes = quizResult.data || [];
+    if (TEACHER_V3) {
+      const [managed, allocations] = await Promise.all([
+        client.from("quiz_manager_quizzes").select("id,runtime_quiz_id"),
+        client.from("quiz_manager_allocations").select("quiz_id,class_id"),
+      ]);
+      if (generation !== authGeneration) return;
+      if (managed.error || allocations.error) window.QUIZ_MANAGER?.disconnect();
+      else
+        quizzes = quizzes.map((q) => {
+          const m = managed.data.find((m) => m.runtime_quiz_id === q.id);
+          return m
+            ? {
+                ...q,
+                class_ids: allocations.data
+                  .filter((a) => a.quiz_id === m.id)
+                  .map((a) => a.class_id),
+              }
+            : q;
+        });
+    }
+    authScreen.hidden = true;
+    dashboard.hidden = false;
+    el("signedIn").hidden = false;
+    el("signedInEmail").textContent = user.email || "Approved teacher";
+    if (!classes.some((c) => String(c.year_group) === year) && classes.length)
+      year = String(classes[0].year_group);
+    syncYear();
+    updateSelectors();
+    message("");
+    await loadResults();
+  } catch (e) {
+    if (generation !== authGeneration) return;
+    approved = false;
+    window.QUIZ_MANAGER?.disconnect();
+    classes = [];
+    quizzes = [];
+    dashboard.hidden = true;
+    authScreen.hidden = false;
+    el("signedIn").hidden = true;
+    message("Access not granted: " + (e.message || "Unable to verify teacher permissions."), true);
+  }
+}
+if (!window.supabase)
+  message("The login library could not load. Check your internet connection.", true);
+else {
+  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: { fetch: authAwareFetch },
+    auth: { detectSessionInUrl: true, autoRefreshToken: true, persistSession: true },
+  });
+  client.auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY") {
+      showSignedOut();
+      el("email").value = session?.user?.email || "";
+      setMode("reset");
+      return;
+    }
+    if (session?.user) {
+      if (mode !== "reset") showSignedIn(session.user);
+    } else showSignedOut();
+  });
+  client.auth.getSession().then(({ data, error }) => {
+    if (error) message(error.message, true);
+    else if (data.session?.user && mode !== "reset") showSignedIn(data.session.user);
+  });
+}
+forgot.addEventListener("click", () => setMode("forgot"));
+back.addEventListener("click", () => setMode("signin"));
+authForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (
+    authRequestPending ||
+    !captchaGate.ready() ||
+    (authCooldowns.get(mode)?.until || 0) > Date.now()
+  ) {
+    syncAuthControls();
+    return;
+  }
+  if (!client) {
+    message("Supabase configuration is not complete.", true);
+    return;
+  }
+  const email = el("email").value.trim(),
+    password = el("password").value;
+  const requestMode = mode;
+  const captchaToken = captchaGate.required() ? captchaGate.consume() : undefined;
+  authRequestPending = true;
+  authRetryAfter = null;
+  syncAuthControls();
+  message("Please wait…");
+  try {
+    let result;
+    if (mode === "signin")
+      result = await client.auth.signInWithPassword({
+        email,
+        password,
+        ...(captchaToken ? { options: { captchaToken } } : {}),
+      });
+    else if (mode === "forgot")
+      result = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: REDIRECT_URL,
+        ...(captchaToken ? { captchaToken } : {}),
+      });
+    else result = await client.auth.updateUser({ password });
+    if (result.error) throw result.error;
+    if (mode === "forgot")
+      message("If the address belongs to an account, a recovery email will be sent.");
+    else if (mode === "reset") {
+      await client.auth.signOut();
+      el("password").value = "";
+      setMode("signin");
+      message("Password saved. Please sign in.");
+    } else if (result.data?.user) showSignedIn(result.data.user);
+  } catch (e) {
+    if (
+      e.status === 429 ||
+      ["over_request_rate_limit", "over_email_send_rate_limit"].includes(e.code)
+    ) {
+      authCooldowns.set(requestMode, {
+        until: Date.now() + (authRetryAfter || 60) * 1000,
+        exact: authRetryAfter !== null,
+      });
+      if (!cooldownTimer) cooldownTimer = setInterval(syncAuthControls, 1000);
+    } else message(e.message || "Something went wrong.", true);
+  } finally {
+    authRequestPending = false;
+    if (requestMode !== "reset") captchaGate.reset();
+    syncAuthControls();
+  }
+});
+el("signOut").addEventListener("click", async () => {
+  if (window.QUIZ_MANAGER && !window.QUIZ_MANAGER.canLeave()) return;
+  if (client) await client.auth.signOut();
+  showSignedOut();
+  setMode("signin");
+});
+for (const b of yearButtons)
+  b.addEventListener("click", () => {
+    year = b.dataset.year;
+    syncYear();
+    updateSelectors();
+    loadResults();
+  });
+classSelect.addEventListener("change", () => {
+  selectedClass =
+    classes.find((c) => c.id === classSelect.value && String(c.year_group) === year) || null;
+  if (TEACHER_V3) updateSelectors();
+  loadResults();
+});
+weekSelect.addEventListener("change", () => {
+  selectedQuiz = quizzes.find((q) => q.id === weekSelect.value) || null;
+  loadResults();
+});
+updateSelectors();
+render();
+
+syncAuthControls();
+document.addEventListener("quiz-published", async () => {
+  if (!approved || !client) return;
+  const session = await client.auth.getSession();
+  if (approved && session.data?.session?.user) showSignedIn(session.data.session.user);
+});

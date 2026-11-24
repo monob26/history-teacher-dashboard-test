@@ -1,0 +1,21 @@
+/* Preserve the existing palette for each page. */
+:root[data-page="pupil"] {
+  --navy: #183348;
+  --cream: #f6f3ec;
+  --ink: #203745;
+  --muted: #586c78;
+  --line: #d9e0e3;
+  --green: #22714d;
+  --red: #a23c3c;
+  --white: #fff;
+}
+:root[data-page="teacher"] {
+  --navy: #172b46;
+  --blue: #3777a8;
+  --cream: #faf7f0;
+  --line: #e3e7ec;
+  --muted: #607186;
+  --white: #fff;
+  --green: #217453;
+  --amber: #94651d;
+}
