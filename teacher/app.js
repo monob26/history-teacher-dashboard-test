@@ -278,10 +278,7 @@ async function loadResults() {
     requested_class_id = selectedClass.id,
     requested_quiz = selectedQuiz?.id;
   try {
-    const codeRequest = client
-      .from("history_pupils")
-      .select("pupil_code,register_number")
-      .eq("class_id", classId);
+    const codeRequest = client.rpc("get_history_class_register", { requested_class_id: classId });
     const resultRequest = requested_quiz
       ? TEACHER_V3
         ? client.rpc("quiz_manager_class_results", {
